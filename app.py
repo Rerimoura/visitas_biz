@@ -1,13 +1,16 @@
 # app.py — Relatório de Visitas (Streamlit)
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 
 import streamlit as st
 from auth import requer_login, logout
-from sheets import gravar_visitas, upload_foto_drive, verificar_visita_existente
-from config import MARCAS, MOTIVOS_NAO_VENDA, USUARIOS
+from sheets import gravar_visitas, upload_foto_drive, verificar_visita_existente, buscar_ultimas_visitas
+from config import MARCAS, MOTIVOS_NAO_VENDA, USUARIOS, SUPERVISORES
 from utils import validar_cnpj
+from email_utils import enviar_email
+from pdf_utils import gerar_pdf_resumo
+from clientes_db import get_connection, buscar_cliente, buscar_ultima_venda
 
 # ── Configuração da página ──────────────────────────────────────────────────
 st.set_page_config(
@@ -126,6 +129,36 @@ st.markdown(f"""
     .stButton > button[kind="secondary"]:hover {{
         border-color: {ACCENT} !important;
         color: {ACCENT} !important;
+    }}
+
+    /* Upload de arquivo — o widget nativo do Streamlit não segue o tema
+       customizado por padrão, então força-se cor de fundo e texto aqui */
+    [data-testid="stFileUploaderDropzone"] {{
+        background: {INPUT_BG} !important;
+        border: 1px dashed {BORDER} !important;
+        border-radius: 8px !important;
+    }}
+    [data-testid="stFileUploaderDropzone"] * {{
+        color: {TEXT} !important;
+    }}
+    [data-testid="stFileUploaderDropzoneInstructions"] span {{
+        color: {TEXT_SEC} !important;
+    }}
+    [data-testid="stFileUploaderDropzone"] [data-testid="stIconMaterial"] {{
+        color: {TEXT_SEC} !important;
+    }}
+    [data-testid="stFileUploaderDropzone"] button {{
+        background: transparent !important;
+        border: 1px dashed {BORDER} !important;
+        border-radius: 8px !important;
+    }}
+    [data-testid="stFileUploaderDropzone"] button:hover {{
+        border-color: {ACCENT} !important;
+        color: {ACCENT} !important;
+    }}
+    [data-testid="stFileUploaderFile"],
+    [data-testid="stFileUploaderFileName"] {{
+        color: {TEXT} !important;
     }}
 
     /* Inputs de texto e número */
@@ -250,6 +283,53 @@ def novo_cliente() -> dict:
     return {"id": uuid.uuid4().hex[:8]}
 
 
+def _fmt_data_br(data_iso: str) -> str:
+    try:
+        return datetime.strptime(data_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except (ValueError, TypeError):
+        return data_iso
+
+
+@st.cache_data(ttl=180)
+def _buscar_ultima_venda_cached(pg_config: dict, cnpj: str, codigo: str) -> str | None:
+    conn = get_connection(pg_config)
+    try:
+        return buscar_ultima_venda(conn, cnpj, codigo)
+    finally:
+        conn.close()
+
+
+def _buscar_historico_cliente(cnpj: str, codigo: str) -> dict:
+    """Histórico do cliente: última/penúltima visita (planilha) e última
+    compra na BIZ (Postgres — de qualquer vendedor, não só de quem está
+    preenchendo agora; vendedor 2 não é um vendedor real e é excluído).
+    Nunca lança exceção — falha de consulta só significa dado ausente."""
+    ultimas_visitas = buscar_ultimas_visitas(cnpj, codigo)
+
+    ultima_venda = None
+    try:
+        ultima_venda = _buscar_ultima_venda_cached(dict(st.secrets["postgres"]), cnpj, codigo)
+    except Exception:
+        pass
+
+    return {
+        "ultima_visita": ultimas_visitas[0] if len(ultimas_visitas) >= 1 else None,
+        "penultima_visita": ultimas_visitas[1] if len(ultimas_visitas) >= 2 else None,
+        "ultima_venda": ultima_venda,
+    }
+
+
+def _formatar_historico(historico: dict) -> list[str]:
+    linhas = []
+    if historico.get("ultima_visita"):
+        linhas.append(f"Última visita: {_fmt_data_br(historico['ultima_visita'])}")
+    if historico.get("penultima_visita"):
+        linhas.append(f"Penúltima visita: {_fmt_data_br(historico['penultima_visita'])}")
+    if historico.get("ultima_venda"):
+        linhas.append(f"Última compra do cliente na BIZ: {_fmt_data_br(historico['ultima_venda'])}")
+    return linhas
+
+
 # ── Inicializar estado ────────────────────────────────────────────────────────
 if "clientes_rapido" not in st.session_state:
     st.session_state.clientes_rapido = [novo_cliente()]
@@ -363,6 +443,11 @@ def renderizar_bloco_cliente(cliente: dict, idx: int, mostrar_remover: bool) -> 
         vendedor, str(data_visita), cnpj, codigo
     ):
         st.warning("⚠️ Você já registrou esse cliente hoje. Confirme se quer mesmo lançar de novo.")
+
+    if cnpj.strip() or codigo.strip():
+        linhas_historico = _formatar_historico(_buscar_historico_cliente(cnpj, codigo))
+        if linhas_historico:
+            st.info(" · ".join(linhas_historico))
 
     vendeu = st.radio(
         "Vendeu?",
@@ -530,27 +615,70 @@ enviar = st.button(
 
 if enviar:
     import os
-    from datetime import datetime
 
     linhas = [c.copy() for c in clientes_data if (c["cnpj"].strip() or c["codigo_cliente"].strip())]
+
+    # Busca o histórico ANTES de gravar — se buscasse depois, a visita de
+    # hoje (recém-gravada) apareceria como "última visita" (óbvio e inútil),
+    # empurrando a penúltima de verdade pra baixo ou sumindo com ela.
+    for c in linhas:
+        c["historico"] = _buscar_historico_cliente(
+            c.get("cnpj", ""), c.get("codigo_cliente", "")
+        )
 
     with st.spinner("Enviando fotos e gravando no Google Sheets..."):
         for c in linhas:
             fotos_obj = c.pop("fotos_objeto", None) or []
             links = []
+            fotos_bytes = []
             for n, foto_obj in enumerate(fotos_obj, start=1):
                 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
                 ext = os.path.splitext(foto_obj.name)[1] or ".jpg"
                 safe_filename = f"{ts}_{c['vendedor']}_cliente_{c['ordem_cliente']}_{n}{ext}"
                 safe_filename = "".join(ch for ch in safe_filename if ch.isalnum() or ch in "._-")
                 foto_bytes = foto_obj.getvalue()
+                fotos_bytes.append(foto_bytes)
                 link = upload_foto_drive(foto_bytes, safe_filename, foto_obj.type or "image/jpeg")
                 if link:
                     links.append(link)
             c["fotos_cliente"] = "\n".join(links)
+            c["fotos_bytes"] = fotos_bytes
 
         sucesso = gravar_visitas(linhas)
 
     if sucesso:
+        supervisor_email = SUPERVISORES.get(divisao)
+        if supervisor_email:
+            with st.spinner("Enviando resumo em PDF ao supervisor..."):
+                try:
+                    conn = get_connection(st.secrets["postgres"])
+                except Exception as e:
+                    st.warning(f"Não foi possível consultar os dados cadastrais dos clientes: {e}")
+                    conn = None
+
+                if conn is not None:
+                    try:
+                        for c in linhas:
+                            c["dados_cadastrais"] = buscar_cliente(
+                                conn, c.get("cnpj", ""), c.get("codigo_cliente", "")
+                            )
+                    finally:
+                        conn.close()
+
+                try:
+                    pdf_bytes = gerar_pdf_resumo(vendedor, divisao, str(data_visita), linhas)
+                    enviar_email(
+                        smtp_config=st.secrets["email"],
+                        destinatario=supervisor_email,
+                        assunto=f"[Visitas App] Resumo de visitas — {vendedor.capitalize()} — {data_visita}",
+                        corpo_html=(
+                            f"<p>Segue em anexo o resumo das visitas de "
+                            f"<strong>{vendedor.capitalize()}</strong> ({divisao}) em {data_visita}.</p>"
+                        ),
+                        anexos=[(f"visitas_{vendedor}_{data_visita}.pdf", pdf_bytes)],
+                    )
+                except Exception as e:
+                    st.warning(f"Relatório gravado, mas não foi possível enviar o PDF ao supervisor: {e}")
+
         st.session_state.enviado = True
         st.rerun()

@@ -1,9 +1,11 @@
-name: Alerta ao supervisor — vendedores sem visita hoje
+name: Alerta ao supervisor — vendedores sem visita no dia
 
 on:
   schedule:
-    # 21:00 UTC = 18:00 BRT (Brasil não observa horário de verão), dias úteis
-    - cron: "0 21 * * 1-5"
+    # 03:00 UTC = 00:00 BRT (Brasil não observa horário de verão), todo dia —
+    # o próprio script pula sábado/domingo (verifica sempre o dia anterior,
+    # já que à meia-noite date.today() é o dia novo, não o que terminou)
+    - cron: "0 3 * * *"
   workflow_dispatch: {}
 
 jobs:

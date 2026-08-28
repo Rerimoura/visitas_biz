@@ -11,7 +11,7 @@ USUARIOS = {
 # Supervisor responsável por cada divisão — recebe o alerta de
 # vendedores que não registraram visita no dia (ver scripts/alerta_supervisor.py)
 SUPERVISORES = {
-    "Higiene": "supervisor.higiene@empresa.com",
+    "Higiene": "rerisson@bizdistribuidora.com.br",
     "Alimentos": "supervisor.alimentos@empresa.com",
     "Bebidas": "supervisor.bebidas@empresa.com",
 }

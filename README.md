@@ -76,10 +76,18 @@ SUPERVISORES = {
 
 ## Alerta automático ao supervisor
 
-Todo dia útil às 18h (horário de Brasília), um workflow do GitHub Actions
+Todo dia à meia-noite (horário de Brasília), um workflow do GitHub Actions
 (`.github/workflows/alerta_supervisor.yml`) roda `scripts/alerta_supervisor.py`,
-que verifica quais vendedores ainda não registraram nenhuma visita no dia e
-manda um e-mail ao supervisor de cada divisão com a lista de quem falta.
+que verifica quais vendedores não registraram nenhuma visita no dia que
+acabou de terminar e manda um e-mail ao supervisor de cada divisão com a
+lista de quem falta.
+
+O job roda todo dia (cron não filtra dia da semana), mas o script sempre
+avalia o dia **anterior** à execução — porque rodando exatamente à meia-noite,
+`date.today()` já é o dia novo — e pula silenciosamente sábado e domingo
+(sem visita esperada, sem e-mail). Ou seja: o alerta de segunda-feira sai
+terça de madrugada, o de sexta sai sábado de madrugada, e não sai nada no
+domingo/segunda de madrugada (fim de semana).
 
 Isso roda fora do Streamlit (o Community Cloud só executa código quando
 alguém abre o app), então precisa do projeto num repositório GitHub com
@@ -95,7 +103,64 @@ os secrets abaixo cadastrados em **Settings → Secrets and variables → Action
 | `SMTP_SENHA` | O mesmo de `secrets.toml` → `[email] senha` |
 
 Para testar sem esperar o horário agendado, vá em **Actions → Alerta ao
-supervisor... → Run workflow** e dispare manualmente.
+supervisor... → Run workflow** e dispare manualmente — lembrando que ele
+sempre avalia o dia anterior à execução, então um teste disparado hoje
+verifica quem faltou ontem, não hoje.
+
+---
+
+## Resumo em PDF por e-mail
+
+A cada relatório enviado com sucesso (modo rápido ou fechamento de dia), o
+app gera um PDF com o resumo das visitas daquele envio (`pdf_utils.py`) e
+manda por e-mail ao supervisor da divisão do vendedor, usando o mesmo
+`[email]` do `secrets.toml`. Se a divisão do vendedor não tiver supervisor
+cadastrado em `SUPERVISORES` (`config.py`), o envio é simplesmente pulado.
+
+Falha no envio do PDF não impede o relatório de ser salvo na planilha —
+aparece só um aviso na tela.
+
+Antes de montar o PDF, o app busca no Postgres (`clientes_db.py`, tabela
+`clientes`) os dados cadastrais de cada cliente pelo CNPJ ou pelo código
+interno (coluna `cliente`) e inclui no PDF: razão social, nome fantasia,
+cidade, bairro, endereço, situação cadastral e limite. A situação é
+calculada assim:
+
+- `antecipado = 'A28'` → **Antecipado**
+- senão, `situacao = 'A'` → **Liberado**
+- qualquer outro caso → **Suspenso**
+
+Se a consulta falhar ou o cliente não for encontrado, o PDF sai sem essa
+seção — não bloqueia o envio.
+
+Cada foto enviada pelo vendedor também é embutida no PDF (além de ir para
+o Google Drive), redimensionada e recomprimida para no máximo 900px de
+largura em JPEG — uma foto de celular de vários MB vira uns 150-250KB no
+PDF, para não pesar demais no e-mail.
+
+---
+
+## Histórico do cliente ao preencher CNPJ/código
+
+Assim que o vendedor preenche o CNPJ ou o código interno de um cliente, o
+app mostra automaticamente (se houver), **e o mesmo histórico também vai
+no PDF enviado ao supervisor**:
+
+- **Última** e **penúltima visita** — datas distintas mais recentes desse
+  cliente na planilha de visitas (`sheets.buscar_ultimas_visitas`), de
+  qualquer vendedor.
+- **Última compra do cliente na BIZ** — maior `data_emissao` em `vendas`
+  (tabela do Postgres) para esse cliente, considerando só `tipo = 'V'`
+  (exclui devoluções) e excluindo `vendedor = 2` (não é um vendedor real).
+  O rótulo deixa explícito que é a última compra do cliente **na empresa
+  como um todo**, não só com quem está preenchendo o relatório — a consulta
+  nunca filtrou por vendedor. Se o cliente foi identificado por CNPJ, o
+  código interno é resolvido primeiro via `clientes.cnpj`.
+
+A consulta de última venda é cacheada por 3 minutos (`st.cache_data`), e
+roda sobre um índice dedicado (`idx_vendas_cliente_tipo_data`, ver
+`../Neon/migrate_postgree.py`) — o que era uma busca de ~0,2-0,5s virou
+consulta de menos de 3ms.
 
 ---
 
@@ -118,6 +183,8 @@ app_visitas/
 ├── sheets.py                           # Integração Google Sheets (camada Streamlit)
 ├── gsheets_core.py                     # Acesso ao Sheets/Drive sem dependência do Streamlit
 ├── email_utils.py                      # Envio de e-mail (SMTP)
+├── pdf_utils.py                        # Geração do PDF de resumo de visitas
+├── clientes_db.py                      # Consulta de dados cadastrais no Postgres
 ├── utils.py                            # Validadores (CNPJ)
 ├── config.py                           # Usuários, divisões, supervisores, marcas, motivos
 ├── scripts/alerta_supervisor.py        # Alerta diário de vendedores sem visita

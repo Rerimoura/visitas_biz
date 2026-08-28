@@ -121,3 +121,24 @@ def verificar_visita_existente(vendedor: str, data_visita: str, cnpj: str, codig
         filtro &= df["codigo_cliente"].astype(str).str.strip() == codigo
 
     return bool(filtro.any())
+
+
+def buscar_ultimas_visitas(cnpj: str, codigo: str, limite: int = 2) -> list[str]:
+    """Retorna as datas (YYYY-MM-DD) das últimas visitas a esse cliente,
+    de qualquer vendedor, mais recente primeiro."""
+    df = carregar_visitas()
+    if df.empty or "data_visita" not in df.columns:
+        return []
+
+    cnpj = cnpj.strip()
+    codigo = codigo.strip()
+    if not cnpj and not codigo:
+        return []
+
+    if cnpj:
+        filtro = df["cnpj"].astype(str).str.strip() == cnpj
+    else:
+        filtro = df["codigo_cliente"].astype(str).str.strip() == codigo
+
+    datas = sorted(df.loc[filtro, "data_visita"].astype(str).unique(), reverse=True)
+    return datas[:limite]

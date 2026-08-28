@@ -1,0 +1,17 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Streamlit secrets (NUNCA envie para o GitHub)
+.streamlit/secrets.toml
+
+# Pasta de uploads
+static/*
+!static/.gitkeep
+
+# Ambientes virtuais
+venv/
+env/
+.env/
+.venv/

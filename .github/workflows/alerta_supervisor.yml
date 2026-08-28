@@ -1,0 +1,30 @@
+name: Alerta ao supervisor — vendedores sem visita hoje
+
+on:
+  schedule:
+    # 21:00 UTC = 18:00 BRT (Brasil não observa horário de verão), dias úteis
+    - cron: "0 21 * * 1-5"
+  workflow_dispatch: {}
+
+jobs:
+  alerta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Rodar checagem e enviar alertas
+        env:
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USUARIO: ${{ secrets.SMTP_USUARIO }}
+          SMTP_SENHA: ${{ secrets.SMTP_SENHA }}
+        run: python scripts/alerta_supervisor.py

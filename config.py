@@ -3,24 +3,33 @@
 # Usuários permitidos: { "usuario": {"senha": ..., "divisao": ...} }
 # Troque por hashes bcrypt em produção
 USUARIOS = {
-    "matheus": {"senha": "senha123", "divisao": "Higiene"},
-    "ana": {"senha": "senha456", "divisao": "Alimentos"},
-    "carlos": {"senha": "senha789", "divisao": "Bebidas"},
+    "Diego Cesar": {"senha": "913574", "divisao": "Matheus"},
+    "Karine": {"senha": "913692", "divisao": "Adriana"},
+    "Luana": {"senha": "913077", "divisao": "Adriana"},
+    "Matheus": {"senha": "913922", "divisao": "Matheus"},
+    "Monica": {"senha": "913849", "divisao": "Adriana"},
+    "Wellyngton": {"senha": "913596", "divisao": "Matheus"},
+    "Fabiane": {"senha": "913381", "divisao": "Matheus"},
+    "Barbara": {"senha": "913415", "divisao": "Adriana"},
+    "Jean": {"senha": "913412", "divisao": "Matheus"},
+    "Maria Tereza": {"senha": "913648", "divisao": "Matheus"},
+    "Jose Guilherme": {"senha": "913124", "divisao": "Adriana"},
+    "Rerisson": {"senha": "123456", "divisao": "Rerisson"},
 }
 
 # Supervisor responsável por cada divisão — recebe o alerta de
 # vendedores que não registraram visita no dia (ver scripts/alerta_supervisor.py)
 SUPERVISORES = {
-    "Higiene": "rerisson@bizdistribuidora.com.br",
-    "Alimentos": "supervisor.alimentos@empresa.com",
-    "Bebidas": "supervisor.bebidas@empresa.com",
+    "Matheus": "rerisson@bizdistribuidora.com.br",
+    "Adriana": "rerisson@bizdistribuidora.com.br",
+    "Rerisson": "rerisson@bizdistribuidora.com.br",
 }
 
 # Marcas disponíveis para venda
 MARCAS = [
     "Cargill",
     "Diageo",
-    "Energizer",
+    "Energizer/Rayovac",
     "Hypera",
     "Haleon",
     "Melitta",

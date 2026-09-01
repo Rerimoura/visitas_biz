@@ -91,7 +91,16 @@ domingo/segunda de madrugada (fim de semana).
 
 Isso roda fora do Streamlit (o Community Cloud só executa código quando
 alguém abre o app), então precisa do projeto num repositório GitHub com
-os secrets abaixo cadastrados em **Settings → Secrets and variables → Actions**:
+os secrets abaixo cadastrados em **Settings → Secrets and variables → Actions**.
+
+**Runner self-hosted**: o job roda em `runs-on: self-hosted`, numa máquina
+dentro da rede da Aliança (não nos servidores do próprio GitHub) — porque
+`zimbra.aliancanet.com.br` (SMTP) bloqueia conexões vindas de fora da rede
+corporativa, e os runners hospedados pelo GitHub tomavam connection timeout.
+O runner precisa estar instalado como **serviço do Windows** numa máquina
+que fique sempre ligada e conectada; veja `C:\actions-runner` nessa máquina
+(`config.cmd ... --runasservice`). Se essa máquina ficar desligada à meia-noite,
+o job simplesmente fica na fila esperando o runner voltar.
 
 | Secret | Valor |
 |---|---|
